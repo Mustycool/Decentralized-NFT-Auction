@@ -127,3 +127,65 @@
     
     (ok true))
 )
+
+(define-public (end-auction (auction-id uint))
+    (let 
+        (
+            (auction (unwrap! (get-auction auction-id) ERR-NO-AUCTION))
+            (current-block block-height)
+        )
+    
+    ;; Verify auction has expired
+    (asserts! (>= current-block (get end-block auction)) ERR-NOT-EXPIRED)
+    (asserts! (is-eq (get status auction) "active") ERR-NOT-ACTIVE)
+    
+    ;; Handle auction settlement
+    (match (get highest-bidder auction)
+        winner (begin
+            ;; Transfer winning bid to auction owner
+            (try! (as-contract (stx-transfer? 
+                (get current-bid auction)
+                tx-sender
+                (get owner auction)
+            )))
+            
+            ;; Transfer NFT to winner (assuming NFT transfer function exists)
+            ;;(try! (transfer-nft? (get token-id auction) (get owner auction) winner))
+            
+            ;; Update auction status
+            (map-set auctions
+                { auction-id: auction-id }
+                (merge auction { status: "ended" })
+            )
+            (ok true)
+        )
+        ;; No winner - auction failed
+        (begin
+            (map-set auctions
+                { auction-id: auction-id }
+                (merge auction { status: "failed" })
+            )
+            (ok true)
+        )
+    ))
+)
+
+(define-public (cancel-auction (auction-id uint))
+    (let (
+        (auction (unwrap! (get-auction auction-id) ERR-NO-AUCTION))
+    )
+    
+    ;; Only owner can cancel
+    (asserts! (is-eq tx-sender (get owner auction)) ERR-NOT-OWNER)
+    
+    ;; Can't cancel if there are bids
+    (asserts! (is-none (get highest-bidder auction)) ERR-AUCTION-ACTIVE)
+    
+    ;; Update auction status
+    (map-set auctions
+        { auction-id: auction-id }
+        (merge auction { status: "cancelled" })
+    )
+    
+    (ok true))
+)
