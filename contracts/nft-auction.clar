@@ -83,3 +83,47 @@
     (var-set next-auction-id (+ auction-id u1))
     (ok auction-id))
 )
+
+(define-public (place-bid (auction-id uint) (bid-amount uint))
+    (let (
+        (auction (unwrap! (get-auction auction-id) ERR-NO-AUCTION))
+        (current-block block-height)
+    )
+    
+    ;; Verify auction is active
+    (asserts! (is-auction-active auction-id) ERR-NOT-ACTIVE)
+    
+    ;; Verify bid is higher than current bid and reserve price
+    (asserts! (> bid-amount (get current-bid auction)) ERR-LOW-BID)
+    (asserts! (>= bid-amount (get reserve-price auction)) ERR-LOW-BID)
+    
+    ;; Handle previous highest bidder refund if exists
+    (match (get highest-bidder auction)
+        prev-bidder (begin
+            ;; Refund previous bidder
+            (try! (as-contract (stx-transfer? (get current-bid auction) contract-caller prev-bidder)))
+            true
+        )
+        false
+    )
+    
+    ;; Transfer bid amount from bidder
+    (try! (stx-transfer? bid-amount tx-sender (as-contract tx-sender)))
+    
+    ;; Update auction state
+    (map-set auctions
+        { auction-id: auction-id }
+        (merge auction {
+            current-bid: bid-amount,
+            highest-bidder: (some tx-sender)
+        })
+    )
+    
+    ;; Update user bid mapping
+    (map-set user-bids
+        { auction-id: auction-id, bidder: tx-sender }
+        { amount: bid-amount }
+    )
+    
+    (ok true))
+)
